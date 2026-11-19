@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Транспорт Львова — швидкості та Replay</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif;color:#1d2330}
+#app{display:grid;grid-template-columns:320px 1fr;height:100%}
+aside{overflow:auto;padding:12px;border-right:1px solid #dde1e8;background:#f7f8fa}
+main{display:grid;grid-template-rows:1fr auto;min-width:0;height:100%}
+#map{min-height:200px}
+h1{font-size:16px;margin:0 0 8px}
+h3{font-size:13px;margin:14px 0 6px;color:#566}
+label{display:block;font-size:12px;color:#566;margin:8px 0 2px}
+select,button{font:inherit;padding:5px 8px;border:1px solid #c5cad3;border-radius:6px;background:#fff;width:100%}
+button{cursor:pointer;width:auto}
+button.on{background:#1d2330;color:#fff;border-color:#1d2330}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.row>*{flex:1}
+.legend span{display:inline-block;width:12px;height:12px;border-radius:3px;margin:0 4px 0 10px;vertical-align:-2px}
+.kv{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #e1e4ea}
+.chain{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;font-size:13px}
+.chain li{padding:2px 0;cursor:pointer}.chain li:hover{background:#eef}
+.chain b{display:inline-block;width:24px;color:#889}
+.dw{cursor:pointer;padding:3px 0;border-bottom:1px dashed #e1e4ea}.dw:hover{background:#eef}
+#bottom{padding:8px 12px;border-top:1px solid #dde1e8;background:#fff}
+#ctrl{display:flex;gap:8px;align-items:center}
+#ctrl input[type=range]{flex:1}
+#clock{font-variant-numeric:tabular-nums;font-weight:600;min-width:48px}
+canvas{width:100%;height:150px;display:block;margin-top:6px;cursor:crosshair}
+.stopdot{background:#fff;border:2px solid #345;border-radius:50%;width:10px;height:10px}
+.num{background:#1d2330;color:#fff;border-radius:9px;font-size:10px;min-width:18px;height:18px;line-height:18px;text-align:center;border:1px solid #fff}
+.note{font-size:12px;color:#889}
+input{font:inherit;padding:5px 8px;border:1px solid #c5cad3;border-radius:6px;width:100%}
+.vb{display:inline-flex;align-items:center;gap:3px;padding:1px 6px 1px 4px;border-radius:12px;color:#fff;font:700 12px/16px system-ui;border:3px solid;box-shadow:0 1px 5px #0007;white-space:nowrap;transform:translate(-50%,-50%)}
+.vs.sel{background:#dfe8ff}.vs.part{opacity:.75}details{margin-top:6px}summary{cursor:pointer;font-size:12px;color:#566}
+.vs{cursor:pointer;padding:4px 0;border-bottom:1px dashed #e1e4ea;font-size:13px}.vs:hover{background:#eef}
+@media(max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{max-height:42vh;border-right:0;border-bottom:1px solid #dde1e8}}
+table.pt{border-collapse:collapse;font-size:12px;margin:4px 0 14px}.pt th,.pt td{padding:3px 10px;border-bottom:1px solid #e3e6ec;text-align:right}.pt th:first-child,.pt td:first-child{text-align:left}.pt tr.sum td{font-weight:700;border-top:2px solid #cfd4dc}
+figure{margin:0 0 18px;max-width:920px}figure img{width:100%;border:1px solid #dde1e8;border-radius:8px;background:#fff}figcaption{font-size:12px;color:#566;margin-bottom:4px}
+#anbox{grid-row:1;grid-column:1;overflow:auto;padding:14px 18px}#anbox h2{font-size:15px;margin:6px 0 10px}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <h1>🚍 Транспорт Львова</h1>
+  <div class="row" id="tabs">
+    <button data-tab="speed" class="on">🚦 Карта швидкостей</button>
+    <button data-tab="replay">⏱ Replay</button>
+    <button data-tab="veh">🚌 ТЗ</button>
+    <button data-tab="an">📊 Аналітика</button>
+  </div>
+  <div id="vehbox" style="display:none">
+    <label>Транспортний засіб (бортовий № або id)</label>
+    <input id="veh" list="vehlist" placeholder="почніть вводити…" autocomplete="off">
+    <datalist id="vehlist"></datalist>
+    <label>Дата</label><select id="vday"></select>
+    <h3>Рейси за день (клік — перейти)</h3><div id="vsegs" class="note">оберіть ТЗ</div>
+  </div>
+  <div id="anside" style="display:none"><label>Маршрут</label><select id="anroute"></select>
+    <label>Дата для графіка ТЗ</label><select id="andate"></select>
+    <p class="note">Час рейсу рахується за траєкторією: від рушання з кінцевої до приїзду на кінцеву, лише повні рейси. Кількість ТЗ і виконання плану — по датах. Дні об’їзду показано окремими стовпцями «(об’їзд)».</p></div>
+  <div id="routebox">
+  <div class="row" id="kinds" style="margin-top:8px"></div>
+  <label>Маршрут</label><select id="route"></select>
+  <label>Напрямок (кінцева)</label><select id="dir"></select>
+  <label>Тип дня</label><select id="dtype"></select>
+  <div id="winbox"><label>Частина доби</label><select id="win"></select></div>
+  <div id="daybox" style="display:none"><label>Дата (Replay)</label><select id="day"></select></div>
+  </div>
+  <div class="legend" style="margin-top:10px"><span style="background:#1a9850"></span>&gt;22
+    <span style="background:#fee050"></span>12–22<span style="background:#d73027"></span>&lt;12 км/год
+    <span style="background:#9e9e9e"></span>мало даних</div>
+  <h3>Показники</h3><div id="stats"></div>
+  <h3>Простої &gt; 2 хв</h3><div id="dwell" class="note"></div>
+  <h3>Зупинки маршруту (рейсу)</h3><ol class="chain" id="chain"></ol>
+  <p class="note" id="gen"></p>
+</aside>
+<main>
+  <div id="map"></div>
+  <div id="anbox" style="display:none"></div>
+  <div id="bottom">
+    <div id="ctrl">
+      <button id="play">▶</button>
+      <input type="range" id="slider" min="21600" max="79200" step="30" value="30600">
+      <span id="clock">08:30</span>
+      <select id="spd" style="width:auto"><option value="30">×30</option><option value="60" selected>×60</option><option value="180">×180</option><option value="600">×600</option></select>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+</main>
+</div>
+<script>
+const KIND={bus:'🚌 Автобуси',trolley:'🚎 Тролейбуси',tram:'🚋 Трамваї'};
+const $=id=>document.getElementById(id);
+const st={seg:null,partsOpen:false,veh:null,vehs:[],vmap:{},vdata:null,idx:null,kind:null,rd:null,dir:null,tab:'speed',t:30600,timer:null,stops:[]};
+const cache={};
+const map=L.map('map',{preferCanvas:true}).setView([49.8397,24.0297],12);
+const base={
+ 'OSM':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}),
+ 'Світла':L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© OSM, © CARTO'}),
+ 'Темна':L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© OSM, © CARTO'}),
+ 'Супутник':L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Esri'}),
+ 'Топо':L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenTopoMap'})};
+base['Світла'].addTo(map);L.control.layers(base,null,{position:'topright'}).addTo(map);
+const gLines=L.layerGroup().addTo(map),gChain=L.layerGroup().addTo(map),gVeh=L.layerGroup().addTo(map),gStops=L.layerGroup(),gDw=L.layerGroup().addTo(map);
+
+const KCOL={bus:'#1565c0',trolley:'#00897b',tram:'#c62828'},KEMO={bus:'🚌',trolley:'🚎',tram:'🚋'};
+const vIcon=(kind,label,v)=>L.divIcon({className:'',iconSize:[0,0],html:`<div class="vb" style="background:${KCOL[kind]||'#333'};border-color:${col(v)}">${KEMO[kind]||'🚌'} ${label}</div>`});
+const col=v=>v==null?'#9e9e9e':v>22?'#1a9850':v>=12?'#fee050':'#d73027';
+const hhmm=s=>String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor(s%3600/60)).padStart(2,'0');
+const D=()=>st.rd.dirs.find(x=>x.dir==st.dir);
+
+function coordsBetween(line,s0,s1){
+  const out=[];let i=0;
+  const at=s=>{let j=Math.max(0,Math.min(line.length-2,bs(line,s)));const a=line[j],b=line[j+1];const k=(s-a[2])/Math.max(b[2]-a[2],1e-9);return[a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k]};
+  out.push(at(s0));const j0=bs(line,s0)+1,j1=bs(line,s1);
+  for(let j=j0;j<=j1&&j<line.length;j++)if(line[j][2]>s0&&line[j][2]<s1)out.push([line[j][0],line[j][1]]);
+  out.push(at(s1));return out;
+}
+function bs(line,s){let lo=0,hi=line.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(line[m][2]<=s)lo=m;else hi=m-1}return lo}
+const posAt=(line,s)=>{const j=Math.max(0,Math.min(line.length-2,bs(line,s)));const a=line[j],b=line[j+1];const k=Math.min(1,Math.max(0,(s-a[2])/Math.max(b[2]-a[2],1e-9)));return[a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k]};
+
+async function j(u){if(!cache[u])cache[u]=fetch(u).then(r=>r.json());return cache[u]}
+
+async function init(){
+  st.idx=await j('index.json');
+  $('gen').textContent='Дані оновлено: '+st.idx.generated+' · дні: '+st.idx.days.join(', ');
+  $('dtype').innerHTML=st.idx.daytypes.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')+'<option value="all">усі дні</option>';
+  $('win').innerHTML=st.idx.windows.map(w=>`<option>${w}</option>`).join('');
+  $('day').innerHTML=st.idx.days.slice().reverse().map(d=>`<option>${d}</option>`).join('');
+  const kinds=[...new Set(st.idx.routes.map(r=>r.kind))];
+  $('kinds').innerHTML=kinds.map(k=>`<button data-k="${k}">${KIND[k]||k}</button>`).join('');
+  document.querySelectorAll('#kinds button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
+  setKind(kinds[0]);
+  try{st.stops=await j('stops.json');drawStops()}catch(e){}
+  loadVehicles();
+  map.on('zoomend',drawStops);
+}
+function setKind(k){
+  st.kind=k;document.querySelectorAll('#kinds button').forEach(b=>b.classList.toggle('on',b.dataset.k==k));
+  const rs=st.idx.routes.filter(r=>r.kind==k);
+  $('route').innerHTML=rs.map(r=>`<option value="${r.file}">${r.id}</option>`).join('');
+  loadRoute();
+}
+async function loadRoute(){
+  st.rd=await j('data/'+$('route').value+'.json');
+  $('dir').innerHTML=st.rd.dirs.map(d=>`<option value="${d.dir}">→ ${d.name} (${d.km} км)</option>`).join('');
+  st.dir=+$('dir').value;redraw(true);
+}
+function drawStops(){
+  gStops.clearLayers();
+  if(map.getZoom()<14){map.removeLayer(gStops);return}
+  map.addLayer(gStops);const b=map.getBounds().pad(.1);
+  st.stops.forEach(s=>{if(!b.contains([s[2],s[3]]))return;
+    L.circleMarker([s[2],s[3]],{radius:4,color:'#345',weight:1.5,fillColor:'#fff',fillOpacity:1}).bindPopup(`<b>${s[1]}</b><br>Маршрути: ${s[4].join(', ')}`).addTo(gStops)});
+}
+function redraw(fit){
+  if(st.tab=='veh'){redrawVeh(fit);return}
+  const d=D();if(!d)return;
+  const key=$('dtype').value+'|'+(st.tab=='speed'?$('win').value:'всі');
+  let sp=d.speed[key]||d.speed['all|'+(st.tab=='speed'?$('win').value:'всі')]||[];
+  gLines.clearLayers();
+  L.polyline(d.line.map(p=>[p[0],p[1]]),{color:'#fff',weight:8,opacity:.9}).addTo(gLines);
+  const bin=st.idx.bin_m;
+  sp.forEach((v,i)=>{const s0=i*bin,s1=Math.min((i+1)*bin,d.L);if(s1-s0<5)return;
+    L.polyline(coordsBetween(d.line,s0,s1),{color:col(v),weight:5,opacity:.95}).bindTooltip(`${s0}–${Math.round(s1)} м: `+(v==null?'мало даних':`<b>${v} км/год</b>`)).addTo(gLines)});
+  gChain.clearLayers();
+  (d.stops||[]).forEach((s,i)=>{L.marker([s[2],s[3]],{icon:L.divIcon({className:'',html:`<div class="num">${i+1}</div>`,iconSize:[18,18]})})
+    .bindPopup(`<b>${i+1}. ${s[1]}</b>`).addTo(gChain)});
+  $('chain').innerHTML=(d.stops||[]).map((s,i)=>`<li data-i="${i}"><b>${i+1}</b>${s[1]}</li>`).join('')||'<li class="note">немає даних зупинок (потрібен --static)</li>';
+  $('chain').querySelectorAll('li[data-i]').forEach(li=>li.onclick=()=>{const s=d.stops[li.dataset.i];map.setView([s[2],s[3]],16)});
+  gDw.clearLayers();
+  $('dwell').innerHTML=d.dwell.length?d.dwell.map((w,i)=>`<div class="dw" data-i="${i}">📍 ${w[0]} м · ${w[3]}× · ~${w[4]} хв</div>`).join(''):'не виявлено';
+  d.dwell.forEach(w=>L.circleMarker([w[1],w[2]],{radius:7,color:'#7b1fa2',fillColor:'#ce93d8',fillOpacity:.8}).bindPopup(`Простій ~${w[4]} хв, ${w[3]} випадків`).addTo(gDw));
+  $('dwell').querySelectorAll('.dw').forEach(e=>e.onclick=()=>{const w=d.dwell[e.dataset.i];map.setView([w[1],w[2]],17)});
+  const tt=d.trip_time||{},f=x=>x?`${x.median} хв (рух ${x.moving}, рейсів ${x.n})`:'—';
+  $('stats').innerHTML=`<div class="kv"><span>Довжина траси</span><b>${d.km} км</b></div>
+   <div class="kv"><span>Середня швидкість</span><b>${d.stats.mean??'—'} км/год</b></div>
+   <div class="kv"><span>Стоїть (&lt;3 км/год)</span><b>${d.stats.stopped??'—'}%</b></div>
+   <div class="kv"><span>Час рейсу (за траєкторією)</span><b>${f(tt.geometry)}</b></div>${tt.detour?`<div class="kv"><span>Рейси з об’їздом</span><b>${f(tt.detour)}</b></div>`:''}`;
+  if(fit)map.fitBounds(d.line.map(p=>[p[0],p[1]]),{padding:[30,30]});
+  drawVeh();drawChart();
+}
+function tracks(){const d=D();return(d.replay[$('day').value]||[])}
+function drawVeh(){
+  gVeh.clearLayers();
+  if(st.tab=='veh'&&st.vdata){const t=st.t;
+    for(const sg of vshown()){if(t<sg.t0||t>sg.t1)continue;const p=sg.p;let k=0;while(k<p.length-2&&p[k+1][0]<=t)k++;
+      const a=p[k],b=p[k+1],f=Math.min(1,Math.max(0,(t-a[0])/Math.max(b[0]-a[0],1)));
+      L.marker([a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f],{icon:vIcon(st.veh?st.veh.kind:'bus',sg.r,a[3]),zIndexOffset:1000})
+       .bindTooltip(`${sg.r} ${sg.dir?'→ '+sg.dir:''} · ${a[3]} км/год`,{direction:'top',offset:[0,-14]}).addTo(gVeh);break}
+    return}
+  if(st.tab!='replay')return;const d=D(),t=st.t;
+  tracks().forEach(T=>{const tr=T.p;if(t<tr[0][0]||t>tr[tr.length-1][0])return;
+    let k=0;while(k<tr.length-2&&tr[k+1][0]<=t)k++;const a=tr[k],b=tr[k+1],f=(t-a[0])/Math.max(b[0]-a[0],1);
+    const s=a[1]+(b[1]-a[1])*f,v=Math.round(a[2]+(b[2]-a[2])*f);
+    L.marker(posAt(d.line,s),{icon:vIcon(st.rd.kind,st.rd.route,v)}).bindTooltip(`${v} км/год · ТЗ ${vlabel(T.v)} (клік — історія)`).on('click',()=>openVeh(T.v,$('day').value)).addTo(gVeh)});
+}
+function drawChart(){
+  if(st.tab=='an')return;
+  const c=$('chart'),r=c.getBoundingClientRect(),dpr=devicePixelRatio||1;c.width=r.width*dpr;c.height=r.height*dpr;
+  const g=c.getContext('2d');g.scale(dpr,dpr);const W=r.width,H=r.height,pl=34,pb=18,pt=6;
+  const X=s=>pl+(s-21600)/57600*(W-pl-4),vmax=40,Y=v=>pt+(1-Math.min(v,vmax)/vmax)*(H-pt-pb);
+  [[0,12,'#d73027'],[12,22,'#fee050'],[22,vmax,'#1a9850']].forEach(([a,b,cl])=>{g.globalAlpha=.13;g.fillStyle=cl;g.fillRect(pl,Y(b),W-pl-4,Y(a)-Y(b))});g.globalAlpha=1;
+  g.fillStyle='#667';g.font='11px system-ui';g.strokeStyle='#e4e7ec';
+  for(let h=6;h<=22;h+=2){g.fillText(h+':00',X(h*3600)-12,H-4);g.beginPath();g.moveTo(X(h*3600),pt);g.lineTo(X(h*3600),H-pb);g.stroke()}
+  [0,10,20,30,40].forEach(v=>g.fillText(v,6,Y(v)+4));
+  if(st.tab=='veh'){chartVeh(g,X,Y,pl,pt,H,pb);c._X=X;return}
+  const d=D();if(!d)return;
+  const tl=d.timeline[$('dtype').value]||d.timeline.all||[];
+  g.strokeStyle='#1565c0';g.lineWidth=2;g.beginPath();let st_=false;
+  tl.forEach((v,i)=>{if(v==null){st_=false;return}const x=X(21600+i*600+300),y=Y(v);st_?g.lineTo(x,y):g.moveTo(x,y);st_=true});g.stroke();
+  if(st.tab=='replay'){const sm=new Array(96).fill(0),n=new Array(96).fill(0);
+    tracks().forEach(T=>T.p.forEach(p=>{const k=Math.floor((p[0]-21600)/600);if(k>=0&&k<96){sm[k]+=p[2];n[k]++}}));
+    g.strokeStyle='#e65100';g.setLineDash([5,3]);g.beginPath();st_=false;
+    sm.forEach((v,i)=>{if(n[i]<3){st_=false;return}const x=X(21600+i*600+300),y=Y(v/n[i]);st_?g.lineTo(x,y):g.moveTo(x,y);st_=true});g.stroke();g.setLineDash([]);}
+  g.lineWidth=1;g.fillStyle='#1565c0';g.fillText('— середнє за тип дня',pl+6,pt+12);
+  if(st.tab=='replay'){g.fillStyle='#e65100';g.fillText('- - обрана дата',pl+130,pt+12)}
+  g.strokeStyle='#111';g.lineWidth=1.5;g.beginPath();g.moveTo(X(st.t),pt);g.lineTo(X(st.t),H-pb);g.stroke();
+  c._X=X;
+}
+function setT(t){st.t=t;$('slider').value=t;$('clock').textContent=hhmm(t);drawVeh();drawChart()}
+const vlabel=id=>{const e=st.vmap[id];if(!e)return id;return /^\d{12,}$/.test(e.plate)?'#'+e.id:e.plate};
+const vopt=e=>vlabel(e.id)+' · '+(KIND[e.kind]||e.kind).slice(0,2)+' '+e.routes.join(',');
+async function loadVehicles(){
+  try{st.vehs=await j('vehicles.json')}catch(e){return}
+  st.vehs.forEach(e=>st.vmap[e.id]=e);
+  $('vehlist').innerHTML=st.vehs.map(e=>`<option value="${vopt(e)}">`).join('');
+}
+function openVeh(id,day){
+  const e=st.vmap[id];if(!e)return;setTab('veh');$('veh').value=vopt(e);
+  $('vday').innerHTML=e.days.slice().reverse().map(d=>`<option>${d}</option>`).join('');
+  if(day&&e.days.includes(day))$('vday').value=day;$('vday').dataset.id=e.id;loadVeh();
+}
+async function loadVeh(){
+  const e=st.vehs.find(x=>vopt(x)==$('veh').value);if(!e){if(!st.vdata)redrawVeh(false);return}
+  if($('vday').options.length==0||$('vday').dataset.id!=e.id){$('vday').innerHTML=e.days.slice().reverse().map(d=>`<option>${d}</option>`).join('');$('vday').dataset.id=e.id}
+  st.veh=e;st.vdata=await j(`data/v/${$('vday').value}/${e.id}.json`);
+  st.seg=null;setRange(21600,79200);const f0=(st.vdata.segs.find(isTrip)||st.vdata.segs[0]).t0;setT(Math.floor(f0/30)*30);redraw(true);
+}
+const isTrip=sg=>sg.ty!=='part';
+const vshown=()=>{const V=st.vdata;if(!V)return[];return st.seg!=null?[V.segs[st.seg]]:V.segs.filter(isTrip)};
+function setRange(a,b){$('slider').min=a;$('slider').max=b}
+function selectSeg(i){
+  const V=st.vdata;st.seg=(st.seg===i)?null:i;
+  if(st.seg==null){setRange(21600,79200)}
+  else{const x=V.segs[st.seg];setRange(Math.floor(x.t0/30)*30,Math.ceil(x.t1/30)*30);setT(Math.floor(x.t0/30)*30)}
+  redrawVeh(true);
+}
+async function segStops(i){
+  const V=st.vdata,sg=V.segs[i];gChain.clearLayers();$('chain').innerHTML='';
+  const rt=st.idx.routes.find(r=>r.id==sg.r);if(!rt)return;
+  const rd=await j('data/'+rt.file+'.json');if(st.seg!==i||st.vdata!==V)return;
+  const d=rd.dirs.find(x=>x.dir==sg.dn);if(!d)return;
+  gChain.clearLayers();
+  (d.stops||[]).forEach((s,k)=>L.marker([s[2],s[3]],{icon:L.divIcon({className:'',html:`<div class="num">${k+1}</div>`,iconSize:[18,18]})})
+    .bindPopup(`<b>${k+1}. ${s[1]}</b>`).addTo(gChain));
+  $('chain').innerHTML=(d.stops||[]).map((s,k)=>`<li data-k="${k}"><b>${k+1}</b>${s[1]}</li>`).join('');
+  $('chain').querySelectorAll('li[data-k]').forEach(li=>li.onclick=()=>{const s=d.stops[li.dataset.k];map.setView([s[2],s[3]],16)});
+}
+function redrawVeh(fit){
+  gLines.clearLayers();gChain.clearLayers();gDw.clearLayers();gVeh.clearLayers();
+  const V=st.vdata;if(!V){drawChart();return}
+  const sel=st.seg!=null?V.segs[st.seg]:null,show=vshown(),all=[];
+  show.forEach(sg=>{for(let i=1;i<sg.p.length;i++){const a=sg.p[i-1],b=sg.p[i];all.push([a[1],a[2]]);
+    L.polyline([[a[1],a[2]],[b[1],b[2]]],{color:col(b[3]),weight:sel?5:4,opacity:.9}).addTo(gLines)}});
+  const trips=V.segs.filter(isTrip),parts=V.segs.filter(x=>!isTrip(x)),base=sel?[sel]:trips;
+  const km=base.reduce((s,x)=>s+x.km,0),dw=base.reduce((s,x)=>s+x.dw,0),n=base.reduce((s,x)=>s+x.p.length,0);
+  const avg=base.reduce((s,x)=>s+x.avg*x.p.length,0)/Math.max(n,1);
+  $('stats').innerHTML=`<div class="kv"><span>ТЗ</span><b>${vlabel(V.id)}</b></div><div class="kv"><span>Дата</span><b>${V.day}</b></div>`+
+   (sel?`<div class="kv"><span>Рейс</span><b>${hhmm(sel.t0)}–${hhmm(sel.t1)}</b></div>`:`<div class="kv"><span>Повних рейсів</span><b>${trips.length}</b></div>`)+
+   `<div class="kv"><span>Пробіг (GPS)</span><b>${km.toFixed(1)} км</b></div><div class="kv"><span>Середня швидкість</span><b>${avg.toFixed(1)} км/год</b></div>
+   <div class="kv"><span>Простоїв &gt; 2 хв</span><b>${dw}</b></div>`;
+  $('dwell').innerHTML='';
+  const row=(x,i)=>`<div class="vs${i===st.seg?' sel':''}${isTrip(x)?'':' part'}" data-i="${i}"><b>${hhmm(x.t0)}–${hhmm(x.t1)}</b> ${x.r} ${x.dir?'→ '+x.dir:''}<br><span class="note">${x.km} км · ${x.avg} км/год · простоїв ${x.dw}${isTrip(x)?(x.w0>=2?' · стояв на кінцевій '+x.w0+' хв':'')+(x.dk?' · ⚠ об’їзд ≈'+x.dk+' км':''):(x.cov!=null?' · охоплено '+x.cov+'% траси':'')}</span></div>`;
+  $('vsegs').innerHTML=(sel?'<button id="allseg" style="margin-bottom:6px">← усі рейси дня</button>':'')+
+    (trips.length?trips.map(x=>row(x,V.segs.indexOf(x))).join(''):'<span class="note">повних рейсів не знайдено</span>')+
+    (parts.length?`<details id="partsbox"${st.partsOpen?' open':''}><summary>Короткі / неповні відрізки (${parts.length}) — не враховані в статистиці</summary>${parts.map(x=>row(x,V.segs.indexOf(x))).join('')}</details>`:'');
+  $('vsegs').querySelectorAll('.vs').forEach(e=>e.onclick=()=>selectSeg(+e.dataset.i));
+  if($('allseg'))$('allseg').onclick=()=>selectSeg(st.seg);
+  if($('partsbox'))$('partsbox').ontoggle=e=>st.partsOpen=e.target.open;
+  if(sel){segStops(st.seg);L.polyline(sel.p.map(p=>[p[1],p[2]]),{color:'#fff',weight:9,opacity:.8}).addTo(gLines).bringToBack()}
+  if(fit&&all.length)map.fitBounds(all,{padding:[30,30]});
+  drawVeh();drawChart();
+}
+function chartVeh(g,X,Y,pl,pt,H,pb){
+  const V=st.vdata;g.fillStyle='#667';if(!V){return}
+  V.segs.forEach((sg,k)=>{if(!isTrip(sg)&&k!==st.seg)return;const on=st.seg==null||k===st.seg;
+    g.strokeStyle=on?'#e65100':'#c9ccd2';g.lineWidth=on?1.8:1;g.beginPath();sg.p.forEach((p,i)=>{const x=X(p[0]),y=Y(p[3]);i?g.lineTo(x,y):g.moveTo(x,y)});g.stroke()});
+  g.lineWidth=1;g.fillStyle='#e65100';g.fillText('швидкість ТЗ '+vlabel(V.id)+', км/год',pl+6,pt+12);
+  g.strokeStyle='#111';g.lineWidth=1.5;g.beginPath();g.moveTo(X(st.t),pt);g.lineTo(X(st.t),H-pb);g.stroke();
+}
+let AN=null,AD=null;
+async function loadAn(){
+  if(!AN){try{AN=await j('analytics.json')}catch(e){AN={routes:{},general:[]}}}
+  if(!AD){try{AD=await j('analytics_data.json')}catch(e){AD={routes:{},plan:{},dt:{},days:[]}}}
+  if(!$('anroute').options.length){
+    const ids=[...new Set([...Object.keys(AN.routes),...Object.keys(AD.routes)])].sort((a,b)=>a.localeCompare(b,'uk',{numeric:true}));
+    $('anroute').innerHTML=ids.map(r=>`<option>${r}</option>`).join('');fillDates();
+  }
+  drawAn();
+}
+function fillDates(){
+  const rd=AD.routes[$('anroute').value]||{},days=Object.keys(rd).sort(),types=[...new Set(days.map(d=>rd[d].dt))];
+  $('andate').innerHTML='<option value="all">усі дні (середнє)</option>'+types.map(t=>`<option value="type:${t}">усі: ${AD.dt[t]||t} (середнє)</option>`).join('')+
+    days.map(d=>`<option value="${d}">${d} · ${AD.dt[rd[d].dt]||rd[d].dt}</option>`).join('');
+}
+function pickDays(rd,sel){const days=Object.keys(rd).sort();return sel=='all'?days:sel.startsWith('type:')?days.filter(d=>rd[d].dt==sel.slice(5)):[sel]}
+function planTable(r,days){
+  const rows=(AD.plan[r]||[]).filter(p=>days.includes(p.day)).sort((a,b)=>a.day.localeCompare(b.day));
+  if(!rows.length)return '<p class="note">Плану випуску для цього маршруту в обраних днях немає (build_site_2.py --plan план.csv).</p>';
+  const cl=p=>p>=95?'#1a9850':p>=80?'#b8860b':'#d73027',pc=(a,b)=>b?Math.round(100*a/b):null;
+  const cell=p=>p==null?'—':`<b style="color:${cl(p)}">${p}%</b>`;
+  const S=k=>rows.reduce((s,x)=>s+(x[k]||0),0);
+  return `<table class="pt"><tr><th>Дата</th><th>Тип дня</th><th>План, ТЗ</th><th>Пік одночасно</th><th>Виконання (за піком)</th><th>Різних ТЗ за добу</th><th>Виконання (за добою)</th></tr>`+
+   rows.map(x=>`<tr><td>${x.day}</td><td>${AD.dt[x.dt]||x.dt}</td><td>${x.planned}</td><td>${x.peak}</td><td>${cell(pc(x.peak,x.planned))}</td><td>${x.unique??'—'}</td><td>${cell(x.unique==null?null:pc(x.unique,x.planned))}</td></tr>`).join('')+
+   (rows.length>1?`<tr class="sum"><td>Разом (${rows.length} дн.)</td><td></td><td>${(S('planned')/rows.length).toFixed(1)}</td><td>${(S('peak')/rows.length).toFixed(1)}</td><td>${cell(pc(S('peak'),S('planned')))}</td><td>${(S('unique')/rows.length).toFixed(1)}</td><td>${cell(pc(S('unique'),S('planned')))}</td></tr>`:'')+'</table>';
+}
+function drawVehChart(r,days){
+  const c=$('anc');if(!c)return;const rd=AD.routes[r]||{},dpr=devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;
+  c.width=W*dpr;c.height=H*dpr;const g=c.getContext('2d');g.scale(dpr,dpr);
+  const v=Array(288).fill(0);days.forEach(d=>rd[d].v.forEach((x,i)=>v[i]+=x/days.length));
+  const plans=[...new Set((AD.plan[r]||[]).filter(p=>days.includes(p.day)).map(p=>p.planned))];
+  const mx=Math.max(1,...v,...plans)+0.5,pl=34,pr=8,pt=10,pb=22,X=h=>pl+(h-4)/20*(W-pl-pr),Y=y=>pt+(1-y/mx)*(H-pt-pb);
+  g.font='11px system-ui';g.fillStyle='#667';g.strokeStyle='#e3e6ec';
+  for(let hh=4;hh<=24;hh+=2){g.beginPath();g.moveTo(X(hh),pt);g.lineTo(X(hh),H-pb);g.stroke();g.fillText(hh,X(hh)-5,H-6)}
+  const st=Math.max(1,Math.ceil(mx/6));for(let y=0;y<=mx;y+=st){g.beginPath();g.moveTo(pl,Y(y));g.lineTo(W-pr,Y(y));g.stroke();g.fillText(y,4,Y(y)+4)}
+  g.strokeStyle='#1565c0';g.lineWidth=2;g.beginPath();v.forEach((y,i)=>{const x=X(i/12),yy=Y(y);i?g.lineTo(x,yy):g.moveTo(x,yy)});g.stroke();
+  g.setLineDash([6,4]);g.strokeStyle='#d73027';g.lineWidth=1.5;plans.forEach(p=>{g.beginPath();g.moveTo(pl,Y(p));g.lineTo(W-pr,Y(p));g.stroke();g.fillStyle='#d73027';g.fillText('план '+p,W-pr-58,Y(p)-4)});g.setLineDash([]);
+}
+function drawAn(){
+  const r=$('anroute').value,o=AN.routes[r]||{},rd=AD.routes[r]||{},sel=$('andate').value||'all',days=pickDays(rd,sel);
+  const card=(t,f)=>f?`<figure><figcaption>${t}</figcaption><img loading="lazy" src="analytics/${encodeURIComponent(f)}"></figure>`:'';
+  const veh=days.length?`<figure><figcaption>Скільки ТЗ на лінії протягом доби (кроки по 5 хв, ${days.length>1?'середнє за '+days.length+' дн.':days[0]}); пунктир — план</figcaption><canvas id="anc" style="width:100%;height:260px;border:1px solid #dde1e8;border-radius:8px;background:#fff"></canvas></figure>`+
+    `<h2>Виконання плану випуску</h2>`+planTable(r,days):'<p class="note">Даних про кількість ТЗ для цього маршруту немає.</p>';
+  $('anbox').innerHTML=(r?`<h2>Маршрут ${r}</h2>`+veh+card('Час рейсу за частиною доби (повні рейси за траєкторією)',o.trip_time):'<p class="note">Графіків немає: запустіть build_site_2.py з --static або --lines, щоб спрацював analyze1.</p>')+
+    (AN.general.length?'<h2>Загальне</h2>'+AN.general.map(g=>card(g.title,g.file)).join(''):'');
+  if(days.length)drawVehChart(r,days);
+}
+$('andate').onchange=drawAn;
+$('anroute').onchange=()=>{fillDates();drawAn()};
+
+function setTab(name){
+  const an=name=='an';$('anside').style.display=an?'':'none';$('anbox').style.display=an?'':'none';
+  $('map').style.display=$('bottom').style.display=an?'none':'';
+  if(an){st.tab=name;if(st.timer)$('play').click();document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x.dataset.tab==name));
+    $('routebox').style.display='none';$('vehbox').style.display='none';loadAn();return}
+  setTimeout(()=>map.invalidateSize(),50);
+  st.tab=name;if(name!='veh'){setRange(21600,79200)}else if(st.seg!=null){const x=st.vdata.segs[st.seg];setRange(Math.floor(x.t0/30)*30,Math.ceil(x.t1/30)*30)}document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x.dataset.tab==name));
+  $('routebox').style.display=name=='veh'?'none':'';$('vehbox').style.display=name=='veh'?'':'none';
+  $('winbox').style.display=name=='speed'?'':'none';$('daybox').style.display=name=='replay'?'':'none';
+  if(name=='speed'&&st.timer)$('play').click();
+  if(name=='veh'){loadVeh()}else redraw(name!='replay'?false:false);
+}
+
+$('slider').oninput=e=>setT(+e.target.value);
+$('chart').onclick=e=>{const r=e.target.getBoundingClientRect(),x=e.clientX-r.left;setT(Math.min(+$('slider').max,Math.max(+$('slider').min,Math.round((21600+(x-34)/(r.width-38)*57600)/30)*30)))};
+$('play').onclick=()=>{
+  if(st.timer){clearInterval(st.timer);st.timer=null;$('play').textContent='▶';return}
+  $('play').textContent='⏸';
+  st.timer=setInterval(()=>{let t=st.t+$('spd').value/4;const mx=+$('slider').max,mn=+$('slider').min;if(t>mx)t=mn;setT(t)},250);
+};
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+$('veh').onchange=()=>{$('vday').dataset.id='';loadVeh()};$('vday').onchange=loadVeh;
+$('route').onchange=loadRoute;$('dir').onchange=()=>{st.dir=+$('dir').value;redraw(true)};
+['dtype','win','day'].forEach(i=>$(i).onchange=()=>redraw(false));
+addEventListener('resize',drawChart);
+init();
+</script>
+</body>
+</html>
